@@ -4,7 +4,7 @@
 // (и остаётся в истории, так что модель дальше тянется к этому голосу). Оригинал всегда можно вернуть.
 
 const MODULE = 'repliky';
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const STORE_KEY = 'repliky';
 const STORE_MAX = 150;
 
@@ -490,7 +490,7 @@ async function apply(i, idx, text, { dom = null } = {}) {
     saveMeta();
     try { await c.saveChat(); } catch (e) { console.warn('[Реплики] сохранение', e); }
     const span = dom || document.querySelector(`#chat .mes[mesid="${i}"] .rp-line[data-rp-i="${idx}"]`);
-    if (span && span.isConnected) {
+    if (span && span.isConnected && !span.dataset.loose) {
         span.textContent = mdStrip(next);
         span.classList.toggle('changed', next !== it.orig);
         span.classList.add('flash');
@@ -510,6 +510,14 @@ async function apply(i, idx, text, { dom = null } = {}) {
 
 const SKIP_SEL = 'details, .gca, .gc-mx, .gc-diary, .gc-preg, .cmp, .rp-chip, script, style, code, pre, [data-gc], .lf-detail, img';
 
+const looseCh = (ch) => { const c = ch.toLowerCase(); return c === 'ё' ? 'е' : (/[\p{L}\p{N}]/u.test(c) ? c : ''); };
+/** Только буквы и цифры, между словами один пробел: так сравниваются тексты, которые тема или регексы перекрасили по-своему. */
+function loose(t) {
+    let out = '';
+    for (const ch of mdStrip(t)) { const c = looseCh(ch); if (c) out += c; else if (out && !out.endsWith(' ')) out += ' '; }
+    return out.trim();
+}
+
 function textMap(root) {
     const nodes = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -517,8 +525,8 @@ function textMap(root) {
     });
     let n;
     while ((n = walker.nextNode())) nodes.push(n);
-    let str = '';
-    const map = [];
+    let str = '', lstr = '';
+    const map = [], lmap = [];
     let space = true;
     for (const node of nodes) {
         const t = node.nodeValue;
@@ -526,34 +534,50 @@ function textMap(root) {
             const ch = t[k];
             if (/[\s ]/.test(ch)) { if (!space) { str += ' '; map.push([node, k]); space = true; } }
             else { str += ch; map.push([node, k]); space = false; }
+            const c = looseCh(ch);
+            if (c) { lstr += c; lmap.push([node, k, Math.max(0, str.length - 1)]); }
+            else if (lstr && !lstr.endsWith(' ')) { lstr += ' '; lmap.push([node, k, Math.max(0, str.length - 1)]); }
         }
     }
-    return { str, map };
+    return { str, map, lstr, lmap };
 }
 
+/** Обернуть реплику пунктиром. Сначала ищем текст как есть, не нашли — по одним буквам. → конец в «точной» строке или -1 */
 function wrap(root, needle, from, attrs) {
-    const { str, map } = textMap(root);
+    const { str, map, lstr, lmap } = textMap(root);
+    const inLine = (node) => !!node.parentElement?.closest('.rp-line');
+    let r = null;
     const q = normWs(mdStrip(needle));
-    if (!q) return -1;
-    // обёртка не меняет текст, так что индексы между репликами сохраняются; уже обёрнутое пропускаем
-    const inLine = (k) => !!map[k][0].parentElement?.closest('.rp-line');
-    let at = -1;
-    for (const start of [from, 0]) {
-        let p = str.indexOf(q, start);
-        while (p >= 0 && (inLine(p) || inLine(p + q.length - 1))) p = str.indexOf(q, p + 1);
-        if (p >= 0) { at = p; break; }
+    if (q) {
+        for (const start of [from, 0]) {
+            let p = str.indexOf(q, start);
+            while (p >= 0 && (inLine(map[p][0]) || inLine(map[p + q.length - 1][0]))) p = str.indexOf(q, p + 1);
+            if (p >= 0) { r = { a: map[p], b: map[p + q.length - 1], end: p + q.length, loose: false }; break; }
+        }
     }
-    if (at < 0) return -1;
-    const [n1, o1] = map[at];
-    const [n2, o2] = map[at + q.length - 1];
+    if (!r) {
+        const lq = loose(needle);
+        if (lq.length >= 2) {
+            const l0 = Math.max(0, lmap.findIndex(x => x[2] >= from));
+            const okAt = (p) => (p === 0 || lstr[p - 1] === ' ') && (p + lq.length >= lstr.length || lstr[p + lq.length] === ' ')
+                && !inLine(lmap[p][0]) && !inLine(lmap[p + lq.length - 1][0]);
+            for (const start of [l0, 0]) {
+                let p = lstr.indexOf(lq, start);
+                while (p >= 0 && !okAt(p)) p = lstr.indexOf(lq, p + 1);
+                if (p >= 0) { const b = lmap[p + lq.length - 1]; r = { a: lmap[p], b, end: b[2] + 1, loose: true }; break; }
+            }
+        }
+    }
+    if (!r) return -1;
     const range = document.createRange();
-    range.setStart(n1, o1);
-    range.setEnd(n2, o2 + 1);
+    range.setStart(r.a[0], r.a[1]);
+    range.setEnd(r.b[0], r.b[1] + 1);
     const span = document.createElement('span');
     span.className = 'rp-line';
     for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
+    if (r.loose) span.dataset.loose = '1';
     try { span.appendChild(range.extractContents()); range.insertNode(span); } catch (e) { console.warn('[Реплики] обёртка', e); return -1; }
-    return at;
+    return r.end;
 }
 
 function unwrapAll(root) {
@@ -569,7 +593,10 @@ function chipHtml(i) {
     const rec = recOf(i);
     if (st === 'run') return `<span class="rp-spin"></span>${/argon|аргон/i.test(settings().profile || '') ? 'Аргон пишет' : 'Пишу'} варианты реплик…`;
     if (st?.startsWith('err:')) return `⚠ Варианты не вышли: ${esc(cut(st.slice(4), 80))} · <b>↻ ещё раз</b>`;
-    if (rec?.items?.length) return `🗨 Варианты реплик · ${rec.items.length}`;
+    if (rec?.items?.length) {
+        const marked = document.querySelectorAll(`#chat .mes[mesid="${i}"] .mes_text .rp-line`).length;
+        return `🗨 Варианты реплик · ${rec.items.length}${marked < rec.items.length ? ` <small>(в тексте отмечено ${marked})</small>` : ''}`;
+    }
     if (rec) return '🗨 Реплик для вариантов не нашлось · <b>↻</b>';
     return '🗨 Варианты реплик';
 }
@@ -588,14 +615,14 @@ function paint(i) {
     const have = [...text.querySelectorAll('.rp-line')];
     const want = painted.get(i);
     const ok = have.length === (want?.key === key ? want.n : items.length)
-        && have.every(sp => sp.dataset.rpKey === key && normWs(sp.textContent) === normWs(mdStrip(items[Number(sp.dataset.rpI)]?.cur)));
+        && have.every(sp => sp.dataset.rpKey === key && loose(sp.textContent) === loose(items[Number(sp.dataset.rpI)]?.cur || ''));
     if (!ok) {
         if (have.length) unwrapAll(text);
         let from = 0;
         items.forEach((it, idx) => {
             if (findItem(m.mes, it) < 0) return;
-            const at = wrap(text, it.cur, from, { 'data-rp-key': key, 'data-rp-i': String(idx) });
-            if (at >= 0) from = at + normWs(mdStrip(it.cur)).length;
+            const end = wrap(text, it.cur, from, { 'data-rp-key': key, 'data-rp-i': String(idx) });
+            if (end >= 0) from = end;
         });
         text.querySelectorAll('.rp-line').forEach(sp => { const it = items[Number(sp.dataset.rpI)]; if (it) sp.classList.toggle('changed', it.cur !== it.orig); });
         painted.set(i, { key, n: text.querySelectorAll('.rp-line').length });
@@ -655,13 +682,15 @@ function watchChat() {
 // ───────────── шторка ─────────────
 
 let sheet = null; // { i, idx|null }
+let sheetAt = 0;  // когда открыли: «призрачный» второй клик iOS после тапа не должен её закрыть или выбрать вариант
 
 function closeSheet() {
     sheet = null;
     const h = document.getElementById('rp-sheet');
     if (!h) return;
+    h.id = 'rp-sheet-closing';
     h.classList.remove('on');
-    setTimeout(() => h.remove(), 220);
+    setTimeout(() => { try { h.close?.(); } catch { /* */ } h.remove(); }, 220);
 }
 
 const bare = (t) => normWs(mdStrip(t)).replace(/[.,!?…:;]+$/, '').toLowerCase();
@@ -691,12 +720,20 @@ function renderSheet() {
     if (!rec?.items?.length) { closeSheet(); return; }
     let h = document.getElementById('rp-sheet');
     if (!h) {
-        h = document.createElement('div');
+        // <dialog> через showModal() — верхний слой браузера: его не перекроет ни тема, ни другое расширение
+        h = document.createElement('dialog');
         h.id = 'rp-sheet';
+        h.className = 'rp-sheet';
         h.innerHTML = '<div class="rp-back" data-rp="close"></div><div class="rp-panel"><div class="rp-grab"></div><div class="rp-body"></div></div>';
         document.body.appendChild(h);
         h.addEventListener('click', onSheetClick);
-        requestAnimationFrame(() => h.classList.add('on'));
+        h.addEventListener('cancel', (e) => { e.preventDefault(); closeSheet(); });
+        let y0 = null;
+        const grab = h.querySelector('.rp-grab');
+        grab.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; }, { passive: true });
+        grab.addEventListener('touchend', e => { if (y0 !== null && e.changedTouches[0].clientY - y0 > 60) closeSheet(); y0 = null; }, { passive: true });
+        try { h.showModal(); } catch { h.setAttribute('open', ''); }
+        requestAnimationFrame(() => requestAnimationFrame(() => h.classList.add('on')));
     }
     const one = Number.isInteger(sheet.idx) && rec.items[sheet.idx];
     const body = h.querySelector('.rp-body');
@@ -710,6 +747,7 @@ function renderSheet() {
 }
 
 function openSheet(i, idx = null) {
+    sheetAt = Date.now();
     sheet = { i, idx };
     renderSheet();
 }
@@ -717,6 +755,7 @@ function openSheet(i, idx = null) {
 async function onSheetClick(ev) {
     const el = ev.target.closest('[data-rp]');
     if (!el || !sheet) return;
+    if (Date.now() - sheetAt < 450) return; // призрачный клик от того же тапа
     const act = el.dataset.rp;
     const i = sheet.i;
     if (act === 'close') return closeSheet();

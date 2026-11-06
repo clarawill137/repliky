@@ -1,16 +1,18 @@
 /* 🗨 Реплики */
 
 .rp-line {
-    text-decoration: underline dotted rgba(217, 104, 123, .6);
-    text-decoration-thickness: 1.5px;
-    text-underline-offset: 4px;
+    /* рамка снизу, а не text-decoration: её не съедают цветные вставки тем и регексов */
+    border-bottom: 1.5px dotted rgba(217, 104, 123, .75);
+    padding-bottom: 1px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: 3px;
     transition: background .25s;
     -webkit-tap-highlight-color: transparent;
 }
 .rp-line:hover { background: rgba(217, 104, 123, .08); }
-.rp-line.changed { text-decoration-color: rgba(242, 200, 121, .8); }
+.rp-line.changed { border-bottom-color: rgba(242, 200, 121, .9); }
 .rp-line.flash { background: rgba(242, 200, 121, .22); }
 
 .rp-chip {
@@ -24,15 +26,22 @@
 }
 .rp-chip:active { transform: scale(.97); }
 .rp-chip b { color: #f2c879; font-weight: 600; }
+.rp-chip small { opacity: .7; font-size: 11px; }
 .rp-chip.err { border-color: rgba(224, 122, 112, .45); color: #e8a49b; }
 .rp-chip.busy { opacity: .7; cursor: default; }
 .rp-spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .2); border-top-color: #d9687b; animation: rpSpin .8s linear infinite; }
 @keyframes rpSpin { to { transform: rotate(360deg); } }
 
 /* шторка */
-#rp-sheet { position: fixed; inset: 0; z-index: 2147482000; display: flex; flex-direction: column; justify-content: flex-end; }
-#rp-sheet .rp-back { position: absolute; inset: 0; background: rgba(4, 6, 10, .55); opacity: 0; transition: opacity .22s; }
-#rp-sheet .rp-panel {
+.rp-sheet {
+    position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh;
+    max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
+    background: transparent; color: inherit; overflow: hidden;
+}
+.rp-sheet[open] { display: flex; flex-direction: column; justify-content: flex-end; }
+.rp-sheet::backdrop { background: transparent; }
+.rp-sheet .rp-back { position: absolute; inset: 0; background: rgba(4, 6, 10, .55); opacity: 0; transition: opacity .22s; }
+.rp-sheet .rp-panel {
     position: relative; max-height: 78vh; display: flex; flex-direction: column;
     width: min(100%, 640px); margin: 0 auto;
     background: #121419; color: #e8e4df;
@@ -42,11 +51,11 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
     font: 15px/1.45 system-ui, -apple-system, sans-serif;
 }
-#rp-sheet.on .rp-back { opacity: 1; }
-#rp-sheet.on .rp-panel { transform: none; }
-#rp-sheet .rp-grab { width: 42px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .2); margin: 9px auto 4px; flex: none; }
-#rp-sheet .rp-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 16px 16px; }
-#rp-sheet .rp-title { font: 600 11px/1 system-ui, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #8a8f99; margin: 10px 2px 12px; }
+.rp-sheet.on .rp-back { opacity: 1; }
+.rp-sheet.on .rp-panel { transform: none; }
+.rp-sheet .rp-grab { width: 42px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .2); margin: 0 auto; flex: none; box-sizing: content-box; padding: 9px 40px 8px; background-clip: content-box; touch-action: none; }
+.rp-sheet .rp-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 16px 16px; }
+.rp-sheet .rp-title { font: 600 11px/1 system-ui, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #8a8f99; margin: 10px 2px 12px; }
 
 .rp-line-card { padding: 4px 0 14px; }
 .rp-line-card + .rp-line-card { border-top: 1px solid rgba(255, 255, 255, .07); padding-top: 14px; }
