@@ -1,0 +1,79 @@
+/* 🗨 Реплики */
+
+.rp-line {
+    text-decoration: underline dotted rgba(217, 104, 123, .6);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 4px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background .25s;
+    -webkit-tap-highlight-color: transparent;
+}
+.rp-line:hover { background: rgba(217, 104, 123, .08); }
+.rp-line.changed { text-decoration-color: rgba(242, 200, 121, .8); }
+.rp-line.flash { background: rgba(242, 200, 121, .22); }
+
+.rp-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    margin: 10px 0 2px; padding: 6px 12px;
+    border-radius: 999px; border: 1px solid rgba(255, 255, 255, .1);
+    background: rgba(255, 255, 255, .06);
+    font: 12.5px/1.3 system-ui, -apple-system, sans-serif;
+    color: var(--SmartThemeBodyColor, #d6dbe4); opacity: .85;
+    cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+.rp-chip:active { transform: scale(.97); }
+.rp-chip b { color: #f2c879; font-weight: 600; }
+.rp-chip.err { border-color: rgba(224, 122, 112, .45); color: #e8a49b; }
+.rp-chip.busy { opacity: .7; cursor: default; }
+.rp-spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .2); border-top-color: #d9687b; animation: rpSpin .8s linear infinite; }
+@keyframes rpSpin { to { transform: rotate(360deg); } }
+
+/* шторка */
+#rp-sheet { position: fixed; inset: 0; z-index: 2147482000; display: flex; flex-direction: column; justify-content: flex-end; }
+#rp-sheet .rp-back { position: absolute; inset: 0; background: rgba(4, 6, 10, .55); opacity: 0; transition: opacity .22s; }
+#rp-sheet .rp-panel {
+    position: relative; max-height: 78vh; display: flex; flex-direction: column;
+    width: min(100%, 640px); margin: 0 auto;
+    background: #121419; color: #e8e4df;
+    border: 1px solid rgba(255, 255, 255, .08); border-bottom: 0; border-radius: 22px 22px 0 0;
+    box-shadow: 0 -16px 50px rgba(0, 0, 0, .55);
+    transform: translateY(100%); transition: transform .26s cubic-bezier(.2, .8, .2, 1);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    font: 15px/1.45 system-ui, -apple-system, sans-serif;
+}
+#rp-sheet.on .rp-back { opacity: 1; }
+#rp-sheet.on .rp-panel { transform: none; }
+#rp-sheet .rp-grab { width: 42px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .2); margin: 9px auto 4px; flex: none; }
+#rp-sheet .rp-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 16px 16px; }
+#rp-sheet .rp-title { font: 600 11px/1 system-ui, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #8a8f99; margin: 10px 2px 12px; }
+
+.rp-line-card { padding: 4px 0 14px; }
+.rp-line-card + .rp-line-card { border-top: 1px solid rgba(255, 255, 255, .07); padding-top: 14px; }
+.rp-line-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.rp-line-head b { color: #d9687b; font-size: 13px; font-weight: 600; }
+.rp-line-head span { color: #8a8f99; font-size: 12px; }
+.rp-now { font-size: 15.5px; color: #f3efe9; margin-bottom: 10px; }
+.rp-now i { margin-left: 8px; font-style: normal; font-size: 11px; color: #f2c879; }
+.rp-opts { display: flex; flex-direction: column; gap: 7px; }
+.rp-opt {
+    display: flex; align-items: flex-start; gap: 8px; text-align: left; width: 100%;
+    padding: 11px 13px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, .08);
+    background: rgba(255, 255, 255, .055); color: inherit; font: inherit; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.rp-opt:active { transform: scale(.985); background: rgba(255, 255, 255, .12); }
+.rp-opt span { flex: 1; }
+.rp-opt small { flex: none; margin-top: 2px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #8a8f99; }
+.rp-opt em { flex: none; font-style: normal; color: #d9687b; }
+.rp-opt.cur { border-color: rgba(217, 104, 123, .55); background: rgba(217, 104, 123, .14); }
+.rp-more {
+    margin-top: 9px; padding: 8px 12px; border-radius: 999px; border: 1px dashed rgba(255, 255, 255, .18);
+    background: transparent; color: #c9c4bd; font: 13px/1.2 system-ui, sans-serif; cursor: pointer;
+}
+.rp-more.busy { opacity: .6; cursor: default; }
+.rp-foot { display: flex; gap: 10px; justify-content: space-between; margin-top: 10px; }
+.rp-link { padding: 10px 4px; background: none; border: 0; color: #f2c879; font: 14px/1.2 system-ui, sans-serif; cursor: pointer; }
+.rp-link:last-child { color: #8a8f99; margin-left: auto; }
+
+.rp-set-chars { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 6px; }
