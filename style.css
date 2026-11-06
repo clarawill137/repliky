@@ -1,19 +1,34 @@
 /* 🗨 Реплики */
 
-.rp-line {
-    /* рамка снизу, а не text-decoration: её не съедают цветные вставки тем и регексов */
-    border-bottom: 1.5px dotted rgba(217, 104, 123, .75);
-    padding-bottom: 1px;
-    -webkit-box-decoration-break: clone;
-    box-decoration-break: clone;
-    cursor: pointer;
-    border-radius: 3px;
-    transition: background .25s;
+.rp-line { border-radius: 3px; transition: background .25s; }
+.rp-line.flash { background: rgba(242, 200, 121, .22); }
+
+/* значок ⇄ после реплики: берёт цвет самой реплики (регексы и раскраска диалогов не страдают) */
+.rp-badge {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.12em; height: 1.12em; margin: 0 .1em 0 .22em; vertical-align: -.17em;
+    border-radius: 50%;
+    background: color-mix(in srgb, currentColor 13%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+    opacity: .7; cursor: pointer; user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    text-decoration: none; font-style: normal; line-height: 1;
+    transition: opacity .2s, transform .15s;
+}
+.rp-badge svg { width: .68em; height: .68em; display: block; }
+.rp-badge::after { content: ''; position: absolute; inset: -9px; } /* палец больше значка */
+.rp-badge:active { transform: scale(.88); opacity: 1; }
+.rp-badge.changed { color: #f2c879; opacity: .95; }
+
+/* если выбран пунктир */
+body[data-rp-mark="line"] .rp-line {
+    border-bottom: 1.5px dotted color-mix(in srgb, currentColor 55%, transparent);
+    padding-bottom: 1px; cursor: pointer;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
     -webkit-tap-highlight-color: transparent;
 }
-.rp-line:hover { background: rgba(217, 104, 123, .08); }
-.rp-line.changed { border-bottom-color: rgba(242, 200, 121, .9); }
-.rp-line.flash { background: rgba(242, 200, 121, .22); }
+body[data-rp-mark="line"] .rp-line.changed { border-bottom-color: rgba(242, 200, 121, .9); }
 
 .rp-chip {
     display: inline-flex; align-items: center; gap: 7px;

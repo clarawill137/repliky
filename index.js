@@ -4,7 +4,7 @@
 // (и остаётся в истории, так что модель дальше тянется к этому голосу). Оригинал всегда можно вернуть.
 
 const MODULE = 'repliky';
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const STORE_KEY = 'repliky';
 const STORE_MAX = 150;
 
@@ -22,6 +22,7 @@ const DEFAULTS = {
     chars: {},
     aliases: '',
     note: '',
+    mark: 'badge', // как отмечать реплики в посте: badge — значок в конце, line — пунктир, none — никак
 };
 // пока персонажа никто не отметил — включён только Баки
 const DEFAULT_ON = /bucky|баки/i;
@@ -493,6 +494,8 @@ async function apply(i, idx, text, { dom = null } = {}) {
     if (span && span.isConnected && !span.dataset.loose) {
         span.textContent = mdStrip(next);
         span.classList.toggle('changed', next !== it.orig);
+        const badge = span.closest('.mes_text')?.querySelector(`.rp-badge[data-rp-i="${idx}"]`);
+        badge?.classList.toggle('changed', next !== it.orig);
         span.classList.add('flash');
         setTimeout(() => span.classList.remove('flash'), 900);
     } else {
@@ -508,7 +511,7 @@ async function apply(i, idx, text, { dom = null } = {}) {
 
 // ───────────── в чате: пунктир и плашка ─────────────
 
-const SKIP_SEL = 'details, .gca, .gc-mx, .gc-diary, .gc-preg, .cmp, .rp-chip, script, style, code, pre, [data-gc], .lf-detail, img';
+const SKIP_SEL = 'details, .gca, .gc-mx, .gc-diary, .gc-preg, .cmp, .rp-chip, .rp-badge, script, style, code, pre, [data-gc], .lf-detail, img';
 
 const looseCh = (ch) => { const c = ch.toLowerCase(); return c === 'ё' ? 'е' : (/[\p{L}\p{N}]/u.test(c) ? c : ''); };
 /** Только буквы и цифры, между словами один пробел: так сравниваются тексты, которые тема или регексы перекрасили по-своему. */
@@ -580,7 +583,12 @@ function wrap(root, needle, from, attrs) {
     return r.end;
 }
 
+const BADGE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8h12l-3.5-3.5M18 16H6l3.5 3.5"/></svg>';
+
+function markMode() { const m = settings().mark; return m === 'line' || m === 'none' ? m : 'badge'; }
+
 function unwrapAll(root) {
+    root.querySelectorAll('.rp-badge').forEach(b => b.remove());
     root.querySelectorAll('.rp-line').forEach(sp => { sp.replaceWith(...sp.childNodes); });
     root.normalize();
 }
@@ -614,18 +622,39 @@ function paint(i) {
     const items = rec?.items || [];
     const have = [...text.querySelectorAll('.rp-line')];
     const want = painted.get(i);
-    const ok = have.length === (want?.key === key ? want.n : items.length)
+    const mode = markMode();
+    const ok = (!want || want.mark === mode)
+        && have.length === (want?.key === key ? want.n : items.length)
+        && (mode !== 'badge' || text.querySelectorAll('.rp-badge').length === have.length)
         && have.every(sp => sp.dataset.rpKey === key && loose(sp.textContent) === loose(items[Number(sp.dataset.rpI)]?.cur || ''));
     if (!ok) {
-        if (have.length) unwrapAll(text);
+        unwrapAll(text);
         let from = 0;
         items.forEach((it, idx) => {
             if (findItem(m.mes, it) < 0) return;
             const end = wrap(text, it.cur, from, { 'data-rp-key': key, 'data-rp-i': String(idx) });
             if (end >= 0) from = end;
         });
-        text.querySelectorAll('.rp-line').forEach(sp => { const it = items[Number(sp.dataset.rpI)]; if (it) sp.classList.toggle('changed', it.cur !== it.orig); });
-        painted.set(i, { key, n: text.querySelectorAll('.rp-line').length });
+        text.querySelectorAll('.rp-line').forEach(sp => {
+            const it = items[Number(sp.dataset.rpI)];
+            if (!it) return;
+            sp.classList.toggle('changed', it.cur !== it.orig);
+            if (mode === 'badge') {
+                const b = document.createElement('span');
+                b.className = `rp-badge${it.cur !== it.orig ? ' changed' : ''}`;
+                b.dataset.rpI = sp.dataset.rpI;
+                b.setAttribute('role', 'button');
+                b.title = 'Варианты реплики';
+                b.innerHTML = BADGE_SVG;
+                // значок — после закрывающих кавычек и знаков, а не внутри «…»
+                let anchor = sp;
+                const nx = sp.nextSibling;
+                const tail = nx?.nodeType === 3 ? (nx.nodeValue.match(/^[»"”’'.,!?…:;)\]]+/) || [''])[0] : '';
+                if (tail) { if (tail.length < nx.nodeValue.length) nx.splitText(tail.length); anchor = nx; }
+                anchor.after(b);
+            }
+        });
+        painted.set(i, { key, n: text.querySelectorAll('.rp-line').length, mark: mode });
     }
     // плашка: у последнего поста всегда, у старых — только если есть варианты или идёт работа
     const block = text.parentElement;
@@ -663,7 +692,7 @@ function watchChat() {
         const ids = new Set();
         for (const mu of muts) {
             const el = mu.target?.nodeType === 1 ? mu.target : mu.target?.parentElement;
-            if (!el || el.closest?.('.rp-chip') || el.closest?.('.rp-line')) continue;
+            if (!el || el.closest?.('.rp-chip') || el.closest?.('.rp-line') || el.closest?.('.rp-badge')) continue;
             const mes = el.closest?.('.mes[mesid]');
             if (mes) ids.add(Number(mes.getAttribute('mesid')));
         }
@@ -784,7 +813,8 @@ async function onSheetClick(ev) {
 }
 
 function onChatClick(ev) {
-    const line = ev.target.closest?.('#chat .rp-line');
+    const badge = ev.target.closest?.('#chat .rp-badge');
+    const line = badge || (markMode() === 'line' ? ev.target.closest?.('#chat .rp-line') : null);
     if (line) {
         const mes = line.closest('.mes[mesid]');
         const sel = window.getSelection?.();
@@ -845,6 +875,8 @@ async function renderSettings() {
           <div class="rp-set-chars">${mem.map(ch => `<label class="checkbox_label"><input type="checkbox" data-rp-char="${esc(ch.name)}" ${isOn(ch.name) ? 'checked' : ''}> ${esc(ch.name)}</label>`).join('') || '<small>—</small>'}</div>
           <label>Лорбук голосов <small>(берутся записи со ★ этого персонажа: ядро и голос)</small></label>
           <select class="text_pole" data-rp-set="lorebook"><option value="">— без лорбука —</option>${books.map(b => `<option value="${esc(b)}" ${b === s.lorebook ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>
+          <label>Как отмечать реплики в посте</label>
+          <select class="text_pole" data-rp-set="mark">${[['badge', 'значок ⇄ в конце реплики'], ['line', 'пунктир под репликой'], ['none', 'никак — только плашка под постом']].map(([v, t]) => `<option value="${v}" ${v === markMode() ? 'selected' : ''}>${t}</option>`).join('')}</select>
           <label class="checkbox_label"><input type="checkbox" data-rp-set="card" ${s.card ? 'checked' : ''}> Карточка персонажа (описание, личность) — модели</label>
           <label>Как зовут персонажей в тексте <small>(Имя карточки = прозвища; из Life и Гардероба уже учтены)</small></label>
           <textarea class="text_pole" rows="2" data-rp-set="aliases" placeholder="Bucky Barnes = Баки, Джеймс">${esc(s.aliases)}</textarea>
@@ -856,7 +888,7 @@ async function renderSettings() {
             <div class="flex1"><label>Ждать, сек</label><input class="text_pole" type="number" min="20" max="600" data-rp-set="timeoutSec" value="${esc(s.timeoutSec)}"></div>
           </div>
           <div class="flex-container"><div class="menu_button" data-rp-btn="last">🗨 Варианты для последнего поста</div></div>
-          <small>Тап по пунктиру в посте — варианты этой реплики; «🗨» под постом — все реплики. Команда <code>/repliky</code> (номер сообщения — для старого поста, <code>on</code>/<code>off</code>). Реплики v${VERSION}</small>
+          <small>Тап по значку ⇄ после реплики — её варианты; «🗨» под постом — все реплики. Команда <code>/repliky</code> (номер сообщения — для старого поста, <code>on</code>/<code>off</code>). Реплики v${VERSION}</small>
         </div>
       </div>`;
     if (!box) {
@@ -879,8 +911,10 @@ function onSettingsChange(ev) {
     else if (el.type === 'number') s[k] = Number(el.value) || DEFAULTS[k];
     else s[k] = el.value;
     save();
-    if (k === 'enabled') paintAll();
+    if (k === 'enabled' || k === 'mark') { syncMarkClass(); paintAll(); }
 }
+
+function syncMarkClass() { document.body.dataset.rpMark = markMode(); }
 
 // ───────────── команда ─────────────
 
@@ -907,6 +941,7 @@ function registerSlash() {
 
 jQuery(async () => {
     settings();
+    syncMarkClass();
     await renderSettings();
     registerSlash();
     document.addEventListener('click', onChatClick, true);
