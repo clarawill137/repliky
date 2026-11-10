@@ -4,7 +4,7 @@
 // (и остаётся в истории, так что модель дальше тянется к этому голосу). Оригинал всегда можно вернуть.
 
 const MODULE = 'repliky';
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const STORE_KEY = 'repliky';
 const STORE_MAX = 150;
 
@@ -315,7 +315,7 @@ function pickProfile() {
     const list = profiles();
     let p = list.find(x => x.name === s.profile) || list.find(x => x.id === s.profile);
     if (!p && !s.profile) {
-        p = list.find(x => /argon|аргон/i.test(x.name || ''));
+        p = list.find(x => /carbon|карбон/i.test(x.name || '')) || list.find(x => /argon|аргон/i.test(x.name || ''));
         if (p) { s.profile = p.name; save(); }
     }
     return p || null;
@@ -599,7 +599,7 @@ function chipHtml(i) {
     const key = keyOf(m, i);
     const st = busy.get(key);
     const rec = recOf(i);
-    if (st === 'run') return `<span class="rp-spin"></span>${/argon|аргон/i.test(settings().profile || '') ? 'Аргон пишет' : 'Пишу'} варианты реплик…`;
+    if (st === 'run') { const pn = settings().profile || ''; return `<span class="rp-spin"></span>${/carbon|карбон/i.test(pn) ? 'Карбон пишет' : /argon|аргон/i.test(pn) ? 'Аргон пишет' : 'Пишу'} варианты реплик…`; }
     if (st?.startsWith('err:')) return `⚠ Варианты не вышли: ${esc(cut(st.slice(4), 80))} · <b>↻ ещё раз</b>`;
     if (rec?.items?.length) {
         const marked = document.querySelectorAll(`#chat .mes[mesid="${i}"] .mes_text .rp-line`).length;
