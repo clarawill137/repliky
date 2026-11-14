@@ -4,7 +4,7 @@
 // (и остаётся в истории, так что модель дальше тянется к этому голосу). Оригинал всегда можно вернуть.
 
 const MODULE = 'repliky';
-const VERSION = '0.1.3';
+const VERSION = '0.1.4';
 const STORE_KEY = 'repliky';
 const STORE_MAX = 150;
 
@@ -24,9 +24,17 @@ const DEFAULTS = {
     note: '',
     mark: 'badge', // как отмечать реплики в посте: badge — значок в конце, line — пунктир, none — никак
 };
-// пока персонажа никто не отметил — включён только Баки
-const DEFAULT_ON = /bucky|баки/i;
-const BUILTIN_ALIASES = [[/bucky/i, ['Баки', 'Бак', 'Джеймс', 'Барнс', 'Джимми']]];
+// пока персонажа не выключили в настройках — включены все карточки чата (кроме рассказчика)
+const NARR = /рассказчик|narrator|мастер|game ?master|(^|[^a-z])gm([^a-z]|$)|мнемозина/i;
+// как модель зовёт их по-русски — иначе её «кто говорит: Тони» не сходится с карточкой «Tony Stark»
+const BUILTIN_ALIASES = [
+    [/bucky/i, ['Баки', 'Бак', 'Джеймс', 'Барнс', 'Джимми']],
+    [/tony|stark/i, ['Тони', 'Старк', 'Энтони']],
+    [/natasha|romanoff/i, ['Наташа', 'Нат', 'Таша', 'Наталья', 'Романофф']],
+    [/steve|rogers/i, ['Стив', 'Роджерс', 'Кэп']],
+    [/yelena|belova/i, ['Елена', 'Лена', 'Белова']],
+    [/sam wilson|^sam\b/i, ['Сэм', 'Уилсон']],
+];
 
 const ctx = () => SillyTavern.getContext();
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -81,7 +89,7 @@ function members() {
 
 function isOn(name) {
     const s = settings();
-    return s.chars[name] !== undefined ? !!s.chars[name] : DEFAULT_ON.test(name);
+    return s.chars[name] !== undefined ? !!s.chars[name] : !NARR.test(name);
 }
 
 function parseAliases(text) {
@@ -105,7 +113,12 @@ function aliasesOf(name) {
 
 function targets() {
     const user = ctx().name1 || '';
-    return members().filter(ch => ch.name && ch.name !== user && isOn(ch.name)).map(ch => ({ name: ch.name, card: ch, aliases: aliasesOf(ch.name) }));
+    const out = [];
+    for (const ch of members()) {
+        if (!ch.name || ch.name === user || NARR.test(ch.name) || !isOn(ch.name) || out.some(t => t.name === ch.name)) continue;
+        out.push({ name: ch.name, card: ch, aliases: aliasesOf(ch.name) });
+    }
+    return out;
 }
 
 // ───────────── хранилище: в метаданных чата, ключ — время сообщения + свайп ─────────────
@@ -280,6 +293,7 @@ function rules(n, list) {
 Что искать:
 - Только прямую речь этих персонажей: ${names}. Кто говорит — понимай по тексту (слова автора, обращения, смысл). Реплики других людей и игрока (${U}) не трогай. Мысли, внутренний голос, тексты сообщений и записок не трогай.
 - orig — точная копия реплики из поста, символ в символ: без начального тире и без слов автора. Если реплика разорвана словами автора («— Ешь, — буркнул он. — Двоих кормишь.»), каждый кусок — отдельный пункт: «Ешь,» и «Двоих кормишь.».
+- who — кто говорит: имя карточки ровно как в списке (${list.map(t => t.name).join(', ')}).
 - Порядок — как в посте.
 
 Какими быть вариантам:
@@ -393,11 +407,23 @@ async function run(i, { manual = false } = {}) {
     }
 }
 
-function whoOk(who, list) {
+/** Это ли персонаж t: по имени и прозвищам, а если стоит Life — и по его сверке имён (алиасы, «Тони» = «Tony»). */
+function sameAs(who, t) {
     const w = String(who || '').trim().toLowerCase();
-    if (!w || !list?.length) return true;
+    if (!w || !t) return false;
+    try { const L = globalThis.LifeBridge?.api; if (L?.sameName?.(who, t.name)) return true; } catch { /* */ }
     const first = w.split(/\s+/)[0];
-    return list.some(t => t.aliases.some(a => { const x = a.toLowerCase(); return x === w || x.split(/\s+/)[0] === first || w.includes(x); }));
+    return t.aliases.some(a => { const x = a.toLowerCase(); return x === w || x.split(/\s+/)[0] === first || w.includes(x); });
+}
+
+function whoOk(who, list) {
+    if (!String(who || '').trim() || !list?.length) return true;
+    return list.some(t => sameAs(who, t));
+}
+
+/** Карточка, чья реплика: по подписи модели, иначе — по автору поста. */
+function targetOf(who, list, author = '') {
+    return list.find(t => sameAs(who, t)) || list.find(t => t.name === author) || null;
 }
 
 function validate(mes, lines, n, list = null) {
@@ -426,7 +452,8 @@ function validate(mes, lines, n, list = null) {
         if (!alts.length) continue;
         taken.push([hit.pos, end]);
         cursor = end;
-        items.push({ who: String(ln?.who || '').trim(), does: String(ln?.does || '').trim(), orig: hit.text, cur: hit.text, pos: hit.pos, occ: countBefore(text, hit.text, hit.pos), alts });
+        const owner = list ? targetOf(ln?.who, list) : null;
+        items.push({ who: owner?.name || String(ln?.who || '').trim(), does: String(ln?.does || '').trim(), orig: hit.text, cur: hit.text, pos: hit.pos, occ: countBefore(text, hit.text, hit.pos), alts });
     }
     return items.sort((a, b) => a.pos - b.pos);
 }
@@ -437,7 +464,7 @@ async function moreFor(i, idx) {
     const it = rec?.items?.[idx];
     if (!m || !it) return;
     const list = targets();
-    const t = list.find(x => x.name === it.who || x.aliases.some(a => a.toLowerCase() === it.who.toLowerCase())) || list[0];
+    const t = targetOf(it.who, list, m.name) || list[0];
     if (!t) { toast('info', 'Не выбран ни один персонаж'); return; }
     const s = settings();
     const n = Math.max(1, Math.min(6, Number(s.count) || 3));
