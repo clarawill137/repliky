@@ -2,9 +2,11 @@
 // Пост целиком пишет основная модель; здесь ничего не упрощается, только предлагается.
 // Реплики в посте подчёркнуты пунктиром: тап → шторка с вариантами → выбранный встаёт в сообщение
 // (и остаётся в истории, так что модель дальше тянется к этому голосу). Оригинал всегда можно вернуть.
+// 0.2: варианты пишутся в тон сцены — режимы пульта Life (нежнятинка и др.), настроение, секс и близость, пожелание к ответу;
+// манера: «в тон» / «вперемешку» / «без сиропа» (сбивает слащавость его способом).
 
 const MODULE = 'repliky';
-const VERSION = '0.1.4';
+const VERSION = '0.2.0';
 const STORE_KEY = 'repliky';
 const STORE_MAX = 150;
 
@@ -23,7 +25,22 @@ const DEFAULTS = {
     aliases: '',
     note: '',
     mark: 'badge', // как отмечать реплики в посте: badge — значок в конце, line — пунктир, none — никак
+    manner: 'mix', // tone — все в тон; mix — в тон и один «без сиропа»; dry — все «без сиропа»
+    scene: true,   // тон сцены из Life: режимы пульта, настроение, секс и близость, пожелание к ответу
 };
+
+// манера вариантов
+const MANNERS = [['tone', 'в тон'], ['mix', 'вперемешку'], ['dry', 'без сиропа']];
+const TONE_RULE = 'в том же регистре, что оригинал и сцена: нежная реплика остаётся нежной (можно и нежнее), сладкая — сладкой, игривая — игривой, пошлая — пошлой, злая — злой. Мягкое не огрубляй, грубое не смягчай. Живость — от конкретики, его словечек и прозвищ, а не от грубости. Если в правилах голоса сказано, что чувства у него выходят грубовато, — здесь бери его мягкую сторону, она тоже в его голосе; грубоватая ласка — только если она уже есть в оригинале.';
+const DRY_RULE = 'тот же смысл и то же чувство, но его способом сбить лишнее: где сироп и сюсюканье — подколка, ворчание, грубоватая ласка, мат любя; где пафос — буднично; где многословно — коротко. Чувство не пропадает и не холодеет — меняется только подача. Если сиропа нет — просто суше и короче.';
+// как режимы пульта Life звучат в репликах (у Life тексты про прозу целиком, здесь — про то, как говорят)
+const MODE_LINES = {
+    tender: 'нежность на полную: ласковые прозвища (из карточки, из истории и новые на ходу), сюсюканье, глупые нежности, признания хоть пять раз подряд — можно и нужно; это его голос с ней, а не слабость',
+    fire: 'под каждой репликой желание: флирт с зубами, подначки, голодное или пошлое — вслух и его словами; без жестокости и без слов-собственности',
+    laugh: 'по-настоящему смешно: подколка, абсурд, сухой дедпан, ворчание, панчлайн в конце фразы; шутку не объяснять',
+    fight: 'рублено: команды, мат, колкость сквозь зубы, одна фраза — одно дело; без речей посреди драки',
+};
+const MODE_NAMES = { tender: ['💗', 'Нежнятинка'], fire: ['🫦', 'Огонь'], laugh: ['😂', 'Ржака'], fight: ['⚔️', 'Боевка'] };
 // пока персонажа не выключили в настройках — включены все карточки чата (кроме рассказчика)
 const NARR = /рассказчик|narrator|мастер|game ?master|(^|[^a-z])gm([^a-z]|$)|мнемозина/i;
 // как модель зовёт их по-русски — иначе её «кто говорит: Тони» не сходится с карточкой «Tony Stark»
@@ -284,11 +301,59 @@ function recentBlock(i, n) {
     return out.join('\n\n');
 }
 
-function rules(n, list) {
+// ───────────── сцена из Life и манера ─────────────
+
+/** Сцена поста из Life: режимы пульта, тон, секс и близость, пожелание к ответу. Life старше 0.68.5 — хотя бы режимы. */
+function sceneOf(i) {
+    if (!settings().scene) return null;
+    const L = globalThis.LifeBridge?.api;
+    if (!L) return null;
+    try { if (typeof L.scene === 'function') return L.scene(i) || null; } catch (e) { console.warn('[Реплики] сцена из Life', e); }
+    try {
+        const ids = L.chatMeta?.()?.modes?.on;
+        const modes = (Array.isArray(ids) ? ids : []).filter(id => MODE_NAMES[id]).map(id => ({ id, emo: MODE_NAMES[id][0], label: MODE_NAMES[id][1] }));
+        return { modes, label: modes.map(m => `${m.emo} ${m.label}`).join(' · ') };
+    } catch { return null; }
+}
+
+/** Сцена словами — для модели вариантов. */
+function sceneText(sc) {
+    if (!sc) return '';
+    const out = [];
+    for (const m of Array.isArray(sc.modes) ? sc.modes : []) out.push(`- Режим «${m.label}» ${m.emo || ''} — включён игроком кнопкой и держится: ${MODE_LINES[m.id] || 'держи его тон'}.`);
+    if (sc.mood?.label) out.push(`- Настроение сцены${sc.mood.manual ? ' (задано игроком)' : ''}: ${sc.mood.label.toLowerCase()}${sc.mood.text ? ` — ${sc.mood.text}` : ''}.`);
+    if (sc.intim) out.push(`- Сейчас секс${sc.intim.tone?.label ? `, оттенок — ${sc.intim.tone.label.toLowerCase()}: ${sc.intim.tone.text || ''}` : ''}.`);
+    else if (sc.after) out.push('- Секс только что закончился — «после»: тихо, тепло, забота, шутки вполголоса.');
+    if (sc.bond) out.push(`- Эмоциональная близость: сцена держится на чувствах${sc.bond.tone?.label ? `, оттенок — ${sc.bond.tone.label.toLowerCase()}: ${sc.bond.tone.text || ''}` : ''}.`);
+    if (String(sc.wish || '').trim()) out.push(`- Пожелание игрока к этому ответу: «${cut(String(sc.wish).trim(), 200)}» — если оно про тон, держи его и в вариантах.`);
+    return out.join('\n');
+}
+
+function mannerOf() { const m = settings().manner; return MANNERS.some(x => x[0] === m) ? m : 'mix'; }
+const mannerLabel = (m = mannerOf()) => (MANNERS.find(x => x[0] === m) || MANNERS[1])[1];
+
+/** Сколько вариантов какой манеры: tone — в тон, dry — без сиропа. */
+function counts(manner, n) {
+    if (manner === 'tone') return { tone: n, dry: 0 };
+    if (manner === 'dry') return { tone: 0, dry: n };
+    return { tone: Math.max(1, n - 1), dry: 1 };
+}
+
+const nv = (k) => `${k} ${plural(k, 'вариант', 'варианта', 'вариантов')}`;
+
+function rules(list, sc, c, single = false) {
     const s = settings();
     const U = ctx().name1 || 'игрок';
     const names = list.map(t => t.aliases.join(' / ')).join('; ');
-    return `Ты — сценарист реплик для ролевой истории на русском. Тебе дают готовый пост. Найди в нём прямую речь указанных персонажей и к каждой реплике придумай ${n} ${plural(n, 'свой вариант', 'своих варианта', 'своих вариантов')} — так, как этот человек мог бы сказать в этот момент.
+    const total = c.tone + c.dry;
+    const scene = sceneText(sc);
+    const manner = single
+        ? `Манера этих вариантов — ${c.dry ? `«без сиропа»: ${DRY_RULE}` : `«в тон»: ${TONE_RULE}`}`
+        : `Манера:\n${[
+            c.tone ? `- alts — ${nv(c.tone)} «в тон»: ${TONE_RULE}` : '',
+            c.dry ? `- dry — ${nv(c.dry)} «без сиропа»: ${DRY_RULE}` : '',
+        ].filter(Boolean).join('\n')}`;
+    return `Ты — сценарист реплик для ролевой истории на русском. Тебе дают готовый пост. Найди в нём прямую речь указанных персонажей и к каждой реплике придумай ${total} ${plural(total, 'свой вариант', 'своих варианта', 'своих вариантов')} — так, как этот человек мог бы сказать в этот момент.
 
 Что искать:
 - Только прямую речь этих персонажей: ${names}. Кто говорит — понимай по тексту (слова автора, обращения, смысл). Реплики других людей и игрока (${U}) не трогай. Мысли, внутренний голос, тексты сообщений и записок не трогай.
@@ -299,26 +364,32 @@ function rules(n, list) {
 Какими быть вариантам:
 - Это НЕ перефразирование. Каждый вариант — своя реплика, другими словами и с другого захода, но в том же месте сцены: делает то же самое (шутка остаётся шуткой, уход от ответа — уходом, признание — признанием, приказ — приказом) и обращена к тому же человеку. Так текст вокруг — реакции, ответы, слова автора — остаётся верным.
 - Голос — строго по ядру и правилам голоса персонажа. Образцы фраз там только для того, чтобы услышать интонацию: не повторяй их и не перекраивай.
-- Живо, в характере, с его словечками и юмором; мат — если он в его голосе и к месту. Не смягчай и не выглаживай, без пафоса, красивостей и терапевтического языка.
-- Варианты разные между собой: например, один короче и суше, один смешнее или наглее, один неожиданный, но всё равно его.
+- Живо, в характере, с его словечками и юмором; мат — если он в его голосе и к месту. Без пафоса, красивостей и терапевтического языка.
+- Варианты разные между собой по заходу: один короче, один с его словечком или прозвищем, один неожиданный, но всё равно его.
 - Длина — примерно как у оригинала, можно короче. Если оригинал кончается запятой (дальше слова автора) — вариант тоже кончается запятой, вопросом или восклицанием. Если оригинал начинается со строчной — вариант тоже.
 - Не повторяй его реплики из недавних сообщений.
-- does — 2–6 слов: что реплика делает в сцене.${s.note?.trim() ? `\n\nДополнительно от игрока:\n${s.note.trim()}` : ''}`;
+- does — 2–6 слов: что реплика делает в сцене.
+
+${manner}${scene ? `\n\nСЦЕНА СЕЙЧАС (так её ведёт Life; это же знала основная модель, когда писала пост — держи и ты):\n${scene}` : ''}${s.note?.trim() ? `\n\nДополнительно от игрока:\n${s.note.trim()}` : ''}`;
 }
 
-function sysAll(n, list) {
-    return `${rules(n, list)}
+const slots = (k, word) => Array.from({ length: k }, (_, x) => `"${word} ${x + 1}"`).join(',');
+
+function sysAll(list, sc, c) {
+    const fields = [c.tone ? `"alts":[${slots(c.tone, 'в тон')}]` : '', c.dry ? `"dry":[${slots(c.dry, 'без сиропа')}]` : ''].filter(Boolean).join(',');
+    return `${rules(list, sc, c)}
 
 Ответ — только JSON, без пояснений и без markdown:
-{"lines":[{"who":"имя","orig":"точный текст реплики","does":"что делает","alts":[${Array.from({ length: n }, (_, k) => `"вариант ${k + 1}"`).join(',')}]}]}
+{"lines":[{"who":"имя","orig":"точный текст реплики","does":"что делает",${fields}}]}
 Если реплик этих персонажей в посте нет — {"lines":[]}.`;
 }
 
-function sysOne(n, list) {
-    return `${rules(n, list)}
+function sysOne(list, sc, c) {
+    const n = c.tone + c.dry;
+    return `${rules(list, sc, c, true)}
 
-Сейчас нужна ОДНА реплика: дай ещё ${n} ${plural(n, 'новый вариант', 'новых варианта', 'новых вариантов')}, не похожих на уже предложенные.
-Ответ — только JSON: {"alts":[${Array.from({ length: n }, (_, k) => `"вариант ${k + 1}"`).join(',')}]}`;
+Сейчас нужна ОДНА реплика: дай ещё ${n} ${plural(n, 'новый вариант', 'новых варианта', 'новых вариантов')} в этой манере, не похожих на уже предложенные.
+Ответ — только JSON: {"alts":[${slots(n, 'вариант')}]}`;
 }
 
 // ───────────── запрос к модели ─────────────
@@ -329,7 +400,7 @@ function pickProfile() {
     const list = profiles();
     let p = list.find(x => x.name === s.profile) || list.find(x => x.id === s.profile);
     if (!p && !s.profile) {
-        p = list.find(x => /carbon|карбон/i.test(x.name || '')) || list.find(x => /argon|аргон/i.test(x.name || ''));
+        p = list.find(x => /argon|аргон/i.test(x.name || '')) || list.find(x => /carbon|карбон/i.test(x.name || ''));
         if (p) { s.profile = p.name; save(); }
     }
     return p || null;
@@ -385,14 +456,17 @@ async function run(i, { manual = false } = {}) {
     paintSoon(i, 0);
     try {
         const n = Math.max(1, Math.min(6, Number(s.count) || 3));
+        const manner = mannerOf();
+        const c = counts(manner, n);
+        const sc = sceneOf(i);
         const user = `ПЕРСОНАЖИ (для них пишем реплики):\n${await charsBlock(list)}\n\nНЕДАВНЕЕ (контекст, не править):\n${recentBlock(i, Number(s.ctxMsgs) || 6) || '—'}\n\nПОСТ (ищи реплики здесь):\n${plain(m0.mes)}`;
-        const raw = await ask([{ role: 'system', content: sysAll(n, list) }, { role: 'user', content: user }]);
+        const raw = await ask([{ role: 'system', content: sysAll(list, sc, c) }, { role: 'user', content: user }]);
         if (chatId() !== cid) return;
         const json = parseJson(raw);
         const m = chat()[i];
         if (!m || keyOf(m, i) !== key) return;
-        const items = validate(m.mes, json?.lines || [], n, list);
-        store()[key] = { at: Date.now(), items };
+        const items = validate(m.mes, json?.lines || [], c, list);
+        store()[key] = { at: Date.now(), items, manner, scene: String(sc?.label || '') };
         trimStore();
         saveMeta();
         busy.delete(key);
@@ -426,7 +500,21 @@ function targetOf(who, list, author = '') {
     return list.find(t => sameAs(who, t)) || list.find(t => t.name === author) || null;
 }
 
-function validate(mes, lines, n, list = null) {
+/** Варианты без пустых и повторов (seen — общий на реплику: в тон и без сиропа не дублируют друг друга). */
+function takeAlts(arr, seen, max) {
+    const out = [];
+    for (const a of Array.isArray(arr) ? arr : []) {
+        const v = cleanLine(a);
+        const k = normWs(v).toLowerCase();
+        if (!v || seen.has(k)) continue;
+        seen.add(k);
+        out.push(v);
+        if (out.length >= max) break;
+    }
+    return out;
+}
+
+function validate(mes, lines, c, list = null) {
     const items = [];
     const taken = [];
     let cursor = 0;
@@ -440,25 +528,21 @@ function validate(mes, lines, n, list = null) {
         const end = hit.pos + hit.text.length;
         if (taken.some(([a, b]) => hit.pos < b && end > a)) continue;
         const seen = new Set([normWs(hit.text).toLowerCase()]);
-        const alts = [];
-        for (const a of Array.isArray(ln?.alts) ? ln.alts : []) {
-            const v = cleanLine(a);
-            const k = normWs(v).toLowerCase();
-            if (!v || seen.has(k)) continue;
-            seen.add(k);
-            alts.push(v);
-            if (alts.length >= n + 3) break;
-        }
-        if (!alts.length) continue;
+        // просили только «без сиропа», а модель сложила их в alts — это они и есть
+        const dryIn = !c.tone && !Array.isArray(ln?.dry) ? ln?.alts : ln?.dry;
+        const alts = c.tone ? takeAlts(ln?.alts, seen, c.tone + 3) : [];
+        const dry = c.dry ? takeAlts(dryIn, seen, c.dry + 2) : [];
+        if (!alts.length && !dry.length) continue;
         taken.push([hit.pos, end]);
         cursor = end;
         const owner = list ? targetOf(ln?.who, list) : null;
-        items.push({ who: owner?.name || String(ln?.who || '').trim(), does: String(ln?.does || '').trim(), orig: hit.text, cur: hit.text, pos: hit.pos, occ: countBefore(text, hit.text, hit.pos), alts });
+        items.push({ who: owner?.name || String(ln?.who || '').trim(), does: String(ln?.does || '').trim(), orig: hit.text, cur: hit.text, pos: hit.pos, occ: countBefore(text, hit.text, hit.pos), alts, dry });
     }
     return items.sort((a, b) => a.pos - b.pos);
 }
 
-async function moreFor(i, idx) {
+/** «↻ ещё» к одной реплике. kind: tone — в тон, dry — без сиропа. */
+async function moreFor(i, idx, kind = 'tone') {
     const m = chat()[i];
     const rec = recOf(i);
     const it = rec?.items?.[idx];
@@ -468,22 +552,19 @@ async function moreFor(i, idx) {
     if (!t) { toast('info', 'Не выбран ни один персонаж'); return; }
     const s = settings();
     const n = Math.max(1, Math.min(6, Number(s.count) || 3));
-    const user = `ПЕРСОНАЖ:\n${await charsBlock([t])}\n\nНЕДАВНЕЕ (контекст):\n${recentBlock(i, 3) || '—'}\n\nПОСТ:\n${plain(m.mes)}\n\nРЕПЛИКА: «${it.cur}»${it.cur !== it.orig ? ` (в оригинале было: «${it.orig}»)` : ''}${it.does ? `\nЧто делает: ${it.does}` : ''}\nУЖЕ ПРЕДЛАГАЛИ (не повторять):\n${it.alts.map(a => `- ${a}`).join('\n')}`;
-    const raw = await ask([{ role: 'system', content: sysOne(n, [t]) }, { role: 'user', content: user }]);
+    const c = kind === 'dry' ? { tone: 0, dry: n } : { tone: n, dry: 0 };
+    if (!Array.isArray(it.dry)) it.dry = [];
+    const was = [...it.alts, ...it.dry];
+    const user = `ПЕРСОНАЖ:\n${await charsBlock([t])}\n\nНЕДАВНЕЕ (контекст):\n${recentBlock(i, 3) || '—'}\n\nПОСТ:\n${plain(m.mes)}\n\nРЕПЛИКА: «${it.cur}»${it.cur !== it.orig ? ` (в оригинале было: «${it.orig}»)` : ''}${it.does ? `\nЧто делает: ${it.does}` : ''}\nУЖЕ ПРЕДЛАГАЛИ (не повторять):\n${was.map(a => `- ${a}`).join('\n') || '—'}`;
+    const raw = await ask([{ role: 'system', content: sysOne([t], sceneOf(i), c) }, { role: 'user', content: user }]);
     const json = parseJson(raw);
-    const seen = new Set([it.orig, it.cur, ...it.alts].map(x => normWs(x).toLowerCase()));
-    let added = 0;
-    for (const a of json?.alts || []) {
-        const v = cleanLine(a);
-        const k = normWs(v).toLowerCase();
-        if (!v || seen.has(k)) continue;
-        seen.add(k);
-        it.alts.push(v);
-        added++;
-    }
-    if (it.alts.length > 15) it.alts.splice(0, it.alts.length - 15);
+    const seen = new Set([it.orig, it.cur, ...was].map(x => normWs(x).toLowerCase()));
+    const got = takeAlts(json?.alts || json?.dry, seen, n + 3);
+    const into = kind === 'dry' ? it.dry : it.alts;
+    into.push(...got);
+    if (into.length > 15) into.splice(0, into.length - 15);
     saveMeta();
-    return added;
+    return got.length;
 }
 
 // ───────────── замена реплики ─────────────
@@ -650,8 +731,10 @@ function paint(i) {
     const have = [...text.querySelectorAll('.rp-line')];
     const want = painted.get(i);
     const mode = markMode();
+    // та же запись, что в прошлый раз (после «разобрать заново» запись новая — тогда значки ставятся заново)
+    const sameRec = want?.key === key && want.at === (rec?.at || 0) && want.items === items.length;
     const ok = (!want || want.mark === mode)
-        && have.length === (want?.key === key ? want.n : items.length)
+        && have.length === (sameRec ? want.n : items.length)
         && (mode !== 'badge' || text.querySelectorAll('.rp-badge').length === have.length)
         && have.every(sp => sp.dataset.rpKey === key && loose(sp.textContent) === loose(items[Number(sp.dataset.rpI)]?.cur || ''));
     if (!ok) {
@@ -681,7 +764,7 @@ function paint(i) {
                 anchor.after(b);
             }
         });
-        painted.set(i, { key, n: text.querySelectorAll('.rp-line').length, mark: mode });
+        painted.set(i, { key, n: text.querySelectorAll('.rp-line').length, mark: mode, at: rec?.at || 0, items: items.length });
     }
     // плашка: у последнего поста всегда, у старых — только если есть варианты или идёт работа
     const block = text.parentElement;
@@ -751,22 +834,39 @@ function closeSheet() {
 
 const bare = (t) => normWs(mdStrip(t)).replace(/[.,!?…:;]+$/, '').toLowerCase();
 
-function optionHtml(it, idx, text, label = '') {
+function optionHtml(it, idx, text, label = '', cls = '') {
     const cur = bare(it.cur) === bare(text);
     const shown = text === it.orig ? text : fit(it.orig, text);
-    return `<button class="rp-opt${cur ? ' cur' : ''}" data-rp="pick" data-i="${idx}" data-t="${esc(text)}">${label ? `<small>${esc(label)}</small>` : ''}<span>${esc(mdStrip(shown))}</span>${cur ? '<em>✓</em>' : ''}</button>`;
+    return `<button class="rp-opt${cur ? ' cur' : ''}${cls ? ` ${cls}` : ''}" data-rp="pick" data-i="${idx}" data-t="${esc(text)}">${label ? `<small>${esc(label)}</small>` : ''}<span>${esc(mdStrip(shown))}</span>${cur ? '<em>✓</em>' : ''}</button>`;
 }
 
 function lineHtml(it, idx, full) {
+    const dry = Array.isArray(it.dry) ? it.dry : [];
     const opts = [
         it.cur !== it.orig ? optionHtml(it, idx, it.orig, 'оригинал') : '',
         ...it.alts.map(a => optionHtml(it, idx, a)),
+        ...dry.map(a => optionHtml(it, idx, a, 'без сиропа', 'dry')),
     ].join('');
     return `<div class="rp-line-card${full ? ' full' : ''}">
         <div class="rp-line-head"><b>${esc(it.who || 'Реплика')}</b>${it.does ? `<span>${esc(it.does)}</span>` : ''}</div>
         <div class="rp-now">«${esc(mdStrip(it.cur))}»${it.cur !== it.orig ? '<i>изменена</i>' : ''}</div>
         <div class="rp-opts">${opts}</div>
-        <button class="rp-more" data-rp="more" data-i="${idx}">↻ Ещё варианты</button>
+        <div class="rp-more-row">
+            <button class="rp-more" data-rp="more" data-k="tone" data-i="${idx}">↻ ещё в тон</button>
+            <button class="rp-more dry" data-rp="more" data-k="dry" data-i="${idx}">↻ ещё без сиропа</button>
+        </div>
+    </div>`;
+}
+
+/** Манера и модель — прямо в шторке, чтобы не лезть в «Расширения» с айфона. */
+function ctlHtml() {
+    const s = settings();
+    const profs = profiles();
+    pickProfile();
+    return `<div class="rp-ctl">
+        <div class="rp-ctl-row"><span>Манера</span><div class="rp-pills">${MANNERS.map(([v, l]) => `<button class="rp-pill${v === mannerOf() ? ' on' : ''}" data-rp="manner" data-v="${v}">${esc(l)}</button>`).join('')}</div></div>
+        <div class="rp-ctl-row"><span>Модель</span><select class="rp-model" data-rp-model="1"><option value="">— выбери —</option>${profs.map(p => `<option value="${esc(p.name)}" ${p.name === s.profile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="rp-ctl-hint">Новая манера и модель — для следующих постов и «↻ ещё»; этот пост переделает «↻ Разобрать заново».</div>
     </div>`;
 }
 
@@ -783,6 +883,7 @@ function renderSheet() {
         h.innerHTML = '<div class="rp-back" data-rp="close"></div><div class="rp-panel"><div class="rp-grab"></div><div class="rp-body"></div></div>';
         document.body.appendChild(h);
         h.addEventListener('click', onSheetClick);
+        h.addEventListener('change', onSheetChange);
         h.addEventListener('cancel', (e) => { e.preventDefault(); closeSheet(); });
         let y0 = null;
         const grab = h.querySelector('.rp-grab');
@@ -797,7 +898,8 @@ function renderSheet() {
     body.innerHTML = one
         ? `${lineHtml(rec.items[sheet.idx], sheet.idx, true)}
            <div class="rp-foot">${rec.items.length > 1 ? `<button class="rp-link" data-rp="all">Все реплики поста · ${rec.items.length}</button>` : ''}<button class="rp-link" data-rp="close">Закрыть</button></div>`
-        : `<div class="rp-title">Реплики поста</div>${rec.items.map((it, k) => lineHtml(it, k, false)).join('')}
+        : `<div class="rp-title">Реплики поста</div>${rec.scene || rec.manner ? `<div class="rp-scene">${[rec.manner ? mannerLabel(rec.manner) : '', esc(rec.scene || '')].filter(Boolean).join(' · ')}</div>` : ''}${rec.items.map((it, k) => lineHtml(it, k, false)).join('')}
+           ${ctlHtml()}
            <div class="rp-foot"><button class="rp-link" data-rp="regen">↻ Разобрать пост заново</button><button class="rp-link" data-rp="close">Закрыть</button></div>`;
     body.scrollTop = top;
 }
@@ -826,9 +928,17 @@ async function onSheetClick(ev) {
         el.classList.add('busy');
         el.textContent = 'Думаю…';
         try {
-            const n = await moreFor(i, Number(el.dataset.i));
+            const n = await moreFor(i, Number(el.dataset.i), el.dataset.k === 'dry' ? 'dry' : 'tone');
             if (!n) toast('info', 'Новых вариантов не придумалось');
         } catch (e) { toast('warning', esc(e?.message || e)); }
+        return renderSheet();
+    }
+    if (act === 'manner') {
+        const v = el.dataset.v;
+        if (!MANNERS.some(x => x[0] === v)) return;
+        settings().manner = v;
+        save();
+        renderSettings();
         return renderSheet();
     }
     if (act === 'regen') {
@@ -837,6 +947,15 @@ async function onSheetClick(ev) {
         if (m) { delete store()[keyOf(m, i)]; saveMeta(); }
         await run(i, { manual: true });
     }
+}
+
+function onSheetChange(ev) {
+    const el = ev.target;
+    if (!el?.dataset?.rpModel) return;
+    settings().profile = el.value;
+    save();
+    renderSettings();
+    toast('info', el.value ? `Модель: ${esc(el.value)}` : 'Модель не выбрана');
 }
 
 function onChatClick(ev) {
@@ -898,6 +1017,9 @@ async function renderSettings() {
             <div class="flex1"><label>Вариантов на реплику</label><input class="text_pole" type="number" min="1" max="6" data-rp-set="count" value="${esc(s.count)}"></div>
             <div class="flex1"><label>Сообщений контекста</label><input class="text_pole" type="number" min="0" max="20" data-rp-set="ctxMsgs" value="${esc(s.ctxMsgs)}"></div>
           </div>
+          <label>Манера вариантов</label>
+          <select class="text_pole" data-rp-set="manner">${MANNERS.map(([v, l]) => `<option value="${v}" ${v === mannerOf() ? 'selected' : ''}>${l} — ${{ tone: 'нежное нежным, грубое грубым', mix: 'в тон и один без сиропа', dry: 'сбивать слащавость его способом' }[v]}</option>`).join('')}</select>
+          <label class="checkbox_label"><input type="checkbox" data-rp-set="scene" ${s.scene ? 'checked' : ''}> Тон сцены из Life: режимы пульта (💗 нежнятинка и др.), настроение, секс и близость, пожелание к ответу</label>
           <label>Персонажи, чьи реплики переписываем ${mem.length ? '' : '<small>(откроется список в групповом чате)</small>'}</label>
           <div class="rp-set-chars">${mem.map(ch => `<label class="checkbox_label"><input type="checkbox" data-rp-char="${esc(ch.name)}" ${isOn(ch.name) ? 'checked' : ''}> ${esc(ch.name)}</label>`).join('') || '<small>—</small>'}</div>
           <label>Лорбук голосов <small>(берутся записи со ★ этого персонажа: ядро и голос)</small></label>

@@ -96,6 +96,27 @@ body[data-rp-mark="line"] .rp-line.changed { border-bottom-color: rgba(242, 200,
     background: transparent; color: #c9c4bd; font: 13px/1.2 system-ui, sans-serif; cursor: pointer;
 }
 .rp-more.busy { opacity: .6; cursor: default; }
+.rp-more-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.rp-more.dry { border-color: rgba(242, 200, 121, .28); color: #e3c58f; }
+.rp-opt.dry small { color: #c9a868; }
+
+/* что за сцена была у вариантов; манера и модель в шторке */
+.rp-scene { margin: -6px 2px 12px; font-size: 12.5px; color: #b9a6ad; }
+.rp-ctl { margin-top: 14px; padding: 12px 12px 10px; border-radius: 16px; background: rgba(255, 255, 255, .04); border: 1px solid rgba(255, 255, 255, .07); }
+.rp-ctl-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.rp-ctl-row > span { flex: none; width: 54px; font-size: 12px; color: #8a8f99; }
+.rp-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-pill {
+    padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .12);
+    background: transparent; color: #c9c4bd; font: 12.5px/1.2 system-ui, sans-serif; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.rp-pill.on { border-color: rgba(217, 104, 123, .6); background: rgba(217, 104, 123, .16); color: #f3efe9; }
+.rp-model {
+    flex: 1; min-width: 0; padding: 8px 10px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .12);
+    background: #1a1d23; color: #e8e4df; font: 14px/1.2 system-ui, sans-serif;
+}
+.rp-ctl-hint { font-size: 11.5px; line-height: 1.35; color: #7d828b; }
 .rp-foot { display: flex; gap: 10px; justify-content: space-between; margin-top: 10px; }
 .rp-link { padding: 10px 4px; background: none; border: 0; color: #f2c879; font: 14px/1.2 system-ui, sans-serif; cursor: pointer; }
 .rp-link:last-child { color: #8a8f99; margin-left: auto; }
