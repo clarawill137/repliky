@@ -6,7 +6,7 @@
 // манера: «в тон» / «вперемешку» / «без сиропа» (сбивает слащавость его способом).
 
 const MODULE = 'repliky';
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const STORE_KEY = 'repliky';
 const STORE_MAX = 150;
 
@@ -271,9 +271,27 @@ function voiceEntries(book, t) {
     return out.sort((a, b) => (/голос/i.test(a.comment) ? 1 : 0) - (/голос/i.test(b.comment) ? 1 : 0)).map(e => String(e.content || '').trim()).filter(Boolean);
 }
 
+/**
+ * Лорбук голосов, как его видно из этого чата («Священный таймлайн»): в эпохе не по умолчанию записи без разметки
+ * (они про основную ролку — «Баки — ядро (конец 2024)») мимо, размеченные — по эпохе и дате, как у модели.
+ * Тогда голос — из карточки этой эпохи. Без ядра и вне мира — книга как есть.
+ */
+async function eraBook(name) {
+    const book = await loadBook(name);
+    const ST = globalThis.SacredTimeline;
+    if (!book || typeof ST?.visible !== 'function') return book;
+    try {
+        const x = ST.context?.();
+        let list = Object.values(book.entries || {});
+        if (x?.era?.id && x?.world?.defaultEra && String(x.era.id) !== String(x.world.defaultEra)) list = list.filter(e => e?.gc);
+        list = await ST.visible(list, name);
+        return { ...book, entries: Object.fromEntries(list.map((e, i) => [i, e])) };
+    } catch (e) { console.warn('[Реплики] эпоха', e); return book; }
+}
+
 async function charsBlock(list) {
     const s = settings();
-    const book = await loadBook(s.lorebook);
+    const book = await eraBook(s.lorebook);
     return list.map(t => {
         const d = t.card.data || {};
         const bits = [`### ${t.name}${t.aliases.length > 1 ? ` (в тексте: ${t.aliases.filter(a => a !== t.name).join(', ')})` : ''}`];
